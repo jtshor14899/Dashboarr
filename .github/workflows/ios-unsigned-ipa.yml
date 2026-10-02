@@ -1,0 +1,126 @@
+# house branch only — builds an UNSIGNED iOS .ipa of the house build for
+# sideloading (AltStore / Sideloadly sign it on the way in with a free
+# Apple ID). No Apple developer account, no EAS, no App Store.
+#
+# Runs in the PRIVATE mirror (jtshor14899/dashboarr-house, branch main) so the
+# artifact and release stay private. macOS minutes bill at 10x on a private
+# repo, so it runs on demand and on pushes to main only.
+name: iOS unsigned IPA (sideload)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-unsigned
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      # Side-by-side with the App Store app: different bundle id + name.
+      HOUSE_BUNDLE_ID: com.wimpymill.dashboarr
+      HOUSE_APP_NAME: Dashboarr WM
+      CI: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9.15.4
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prod=false
+
+      - name: Select Xcode
+        # Upstream pins Xcode 26.4 (codemagic.yaml); the window-controls
+        # native module needs the iOS 26 SDK.
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.4.app
+          xcodebuild -version
+
+      - name: Expo prebuild (generate ios/)
+        run: pnpm exec expo prebuild --platform ios --clean --no-install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock', 'pnpm-lock.yaml') }}
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install
+
+      - name: Build (Release, no code signing)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          WS=$(ls -d *.xcworkspace | head -1)
+          SCHEME="${WS%.xcworkspace}"
+          echo "workspace=$WS scheme=$SCHEME"
+          xcodebuild \
+            -workspace "$WS" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build 2>&1 | tee /tmp/xcodebuild.log | grep -E "error:|warning: .*(deprecated API)|\*\* BUILD|Compiling|Linking" | tail -n 60
+
+      - name: Package .ipa
+        working-directory: ios
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)
+          test -n "$APP" || { echo "no .app produced"; tail -n 80 /tmp/xcodebuild.log; exit 1; }
+          VERSION=$(node -p "require('../package.json').version")
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qry "../Dashboarr-WM-${VERSION}-unsigned.ipa" Payload
+          ls -la ../*.ipa
+          echo "IPA=Dashboarr-WM-${VERSION}-unsigned.ipa" >> "$GITHUB_ENV"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA }}
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: /tmp/xcodebuild.log
+
+      - name: Publish as the rolling "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest "${IPA}" \
+            --title "Dashboarr WM ${VERSION} (unsigned, $(git rev-parse --short HEAD))" \
+            --notes "Unsigned iOS build of the house branch. Sideload with AltStore or Sideloadly (free Apple ID; re-sign every 7 days). Push notifications are not available in a sideloaded build (free Apple IDs cannot carry the push entitlement)." \
+            --latest
