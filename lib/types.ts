@@ -3697,6 +3697,34 @@ export interface AdguardDhcpStatus {
   static_leases?: AdguardDhcpStaticLease[];
 }
 
+// --- Blocked services (GET /control/blocked_services/all|get, PUT .../update) ---
+
+/** One entry of AGH's built-in catalog (TikTok, YouTube, …). */
+export interface AdguardBlockedServiceDef {
+  id: string;
+  name: string;
+  /** The SVG icon, Base64-encoded, every path drawn with `currentColor`. */
+  icon_svg: string;
+  rules: string[];
+  group_id?: string;
+}
+
+export interface AdguardBlockedServicesAll {
+  blocked_services: AdguardBlockedServiceDef[];
+  groups?: { id: string }[];
+}
+
+/**
+ * `GET /control/blocked_services/get` and the body of `PUT
+ * /control/blocked_services/update`: the ids currently blocked plus the
+ * pause schedule. The PUT replaces BOTH, so a write must carry the schedule
+ * it read or it silently clears the user's pause windows.
+ */
+export interface AdguardBlockedServicesSchedule {
+  ids: string[];
+  schedule?: AdguardSchedule;
+}
+
 /** Blocked-services pause schedule; one optional range per weekday. */
 export interface AdguardSchedule {
   time_zone?: string;
