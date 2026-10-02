@@ -13,8 +13,17 @@ const nativeBuildNumber = major * 10000 + minor * 100 + patch;
 // on the same device. Slug and EAS project stay shared so OTA channels still
 // route correctly (dev binaries pull the "development" channel via eas.json).
 const IS_DEV = process.env.APP_VARIANT === "development";
-const APP_NAME = IS_DEV ? "Dashboarr Dev" : "Dashboarr";
-const BUNDLE_ID = IS_DEV ? "com.dashboarr.app.dev" : "com.dashboarr.app";
+// house branch: a self-signed personal build cannot use upstream's bundle id
+// (Apple bundle ids are claimed per developer team) or upstream's EAS project
+// (owned by the "dashboarr" Expo account), so every identity field can be
+// overridden from the environment. Unset = identical to upstream.
+const HOUSE_BUNDLE_ID = process.env.HOUSE_BUNDLE_ID;
+const HOUSE_APP_NAME = process.env.HOUSE_APP_NAME;
+const HOUSE_EAS_OWNER = process.env.HOUSE_EAS_OWNER;
+const HOUSE_EAS_SLUG = process.env.HOUSE_EAS_SLUG;
+const HOUSE_EAS_PROJECT_ID = process.env.HOUSE_EAS_PROJECT_ID;
+const APP_NAME = HOUSE_APP_NAME ?? (IS_DEV ? "Dashboarr Dev" : "Dashboarr");
+const BUNDLE_ID = HOUSE_BUNDLE_ID ?? (IS_DEV ? "com.dashboarr.app.dev" : "com.dashboarr.app");
 const APP_SCHEME = IS_DEV ? "dashboarr-dev" : "dashboarr";
 
 // google-services.json holds real FCM credentials, so it's gitignored and a
@@ -51,8 +60,8 @@ if (!HAS_GOOGLE_SERVICES) {
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: APP_NAME,
-  "owner": "dashboarr",
-  slug: "dashboarr",
+  "owner": HOUSE_EAS_OWNER ?? "dashboarr",
+  slug: HOUSE_EAS_SLUG ?? "dashboarr",
   version: pkg.version,
   orientation: "portrait",
   icon: "./assets/icon.png",
@@ -148,7 +157,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // applied at Gradle build time by plugins/withDevVariant — that lets one
     // prebuilt android/ project produce both variants by toggling APP_VARIANT
     // when invoking gradlew, without a second prebuild.
-    package: "com.dashboarr.app",
+    package: HOUSE_BUNDLE_ID ?? "com.dashboarr.app",
     versionCode: nativeBuildNumber,
     ...(HAS_GOOGLE_SERVICES ? { googleServicesFile: GOOGLE_SERVICES_FILE } : {}),
     // VIEW intent filters for .torrent files (file managers, browser
@@ -188,7 +197,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // enabled on the Expo side (see backend README).
   extra: {
     eas: {
-      "projectId": "2e40d2d5-f7c5-4c28-922c-40e2a5ab2a8c"
+      "projectId": HOUSE_EAS_PROJECT_ID ?? "2e40d2d5-f7c5-4c28-922c-40e2a5ab2a8c"
     },
   },
   plugins: [
