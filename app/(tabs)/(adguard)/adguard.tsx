@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronRight, Filter, ListFilter, Network } from "lucide-react-native";
+import { ChevronRight, Filter, ListFilter, Monitor, Network } from "lucide-react-native";
 import { CachedDataBanner } from "@/components/common/cached-data-banner";
 import { ScreenWrapper } from "@/components/common/screen-wrapper";
 import { ServiceHeader } from "@/components/common/service-header";
@@ -10,6 +10,7 @@ import { usePullToRefresh } from "@/components/common/pull-to-refresh";
 import { BlockedRing } from "@/components/pihole/blocked-ring";
 import { ProtectionControl } from "@/components/adguard/protection-control";
 import { QueriesOverTimeChart } from "@/components/adguard/queries-over-time-chart";
+import { ClientRow } from "@/components/adguard/client-row";
 import { QueryRow } from "@/components/adguard/query-row";
 import { TopList, type TopListRow } from "@/components/pihole/top-list";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,12 @@ import { FilterChip } from "@/components/ui/filter-chip";
 import { Icon } from "@/components/ui/icon";
 import { SkeletonCardContent } from "@/components/ui/skeleton";
 import { toast, toastError } from "@/components/ui/toast";
+import { mergeClientRows } from "@/lib/adguard-clients";
 import { toTopListRows } from "@/lib/adguard-normalize";
 import { summarizeRules, userRulesOf } from "@/lib/adguard-rules";
 import {
+  useAdguardClients,
+  useAdguardDhcpStatus,
   useAdguardFilterStatus,
   useAdguardLiveQueryLog,
   useAdguardRewrites,
@@ -36,6 +40,7 @@ import { formatIsoAgo } from "@/lib/adguard-format";
 const TOP_COUNT = 10;
 const PREVIEW_QUERY_COUNT = 5;
 const PREVIEW_REWRITE_COUNT = 3;
+const PREVIEW_CLIENT_COUNT = 4;
 
 export default function AdguardScreen() {
   return (
@@ -70,6 +75,7 @@ function AdguardScreenInner() {
         <FilteringCard />
         <CustomRulesCard />
         <RecentQueriesCard />
+        <ClientsCard />
         <LocalDnsCard />
       </View>
     </ScreenWrapper>
@@ -341,6 +347,52 @@ function RecentQueriesCard() {
           {rows.map((q) => (
             <QueryRow key={`${q.time}-${q.question.name}`} query={q} />
           ))}
+        </View>
+      )}
+    </Card>
+  );
+}
+
+function ClientsCard() {
+  const router = useRouter();
+  const clients = useAdguardClients();
+  const dhcp = useAdguardDhcpStatus();
+  const { data: stats } = useAdguardStats();
+  const rows = mergeClientRows({
+    clients: clients.data,
+    dhcp: dhcp.data,
+    topClients: stats?.top_clients,
+  });
+  const leases = (dhcp.data?.leases?.length ?? 0) + (dhcp.data?.static_leases?.length ?? 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <View className="flex-row items-center gap-2">
+          <Icon icon={Monitor} size={ICON.MD} color="#a1a1aa" />
+          <CardTitle>Clients</CardTitle>
+        </View>
+        <Pressable
+          onPress={() => router.push("/adguard/clients")}
+          className="flex-row items-center gap-1 active:opacity-70"
+        >
+          <Text className="text-primary text-sm">View all</Text>
+          <Icon icon={ChevronRight} size={ICON.XS} color="#3b82f6" />
+        </Pressable>
+      </CardHeader>
+      {clients.isLoading && !clients.data ? (
+        <SkeletonCardContent rows={3} />
+      ) : rows.length === 0 ? (
+        <EmptyState compact title="No clients yet" />
+      ) : (
+        <View className="gap-3">
+          {rows.slice(0, PREVIEW_CLIENT_COUNT).map((r) => (
+            <ClientRow key={r.key} row={r} />
+          ))}
+          <Text className="text-zinc-600 text-xs">
+            {rows.length} client{rows.length === 1 ? "" : "s"}
+            {dhcp.data ? ` · ${leases} DHCP lease${leases === 1 ? "" : "s"}` : ""}
+          </Text>
         </View>
       )}
     </Card>

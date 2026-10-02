@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { Ban, Search, ShieldCheck, Undo2 } from "lucide-react-native";
 import { ActionSheet, type ActionSheetAction } from "@/components/ui/action-sheet";
 import { BackHeader } from "@/components/common/back-header";
@@ -71,8 +72,12 @@ export default function AdguardQueriesScreen() {
   const { instances, activeId } = useActiveInstance("adguard");
   const activeName = instances.find((i) => i.id === activeId)?.name;
 
+  // The Clients screen deep-links here with the client's IP/name as the
+  // search term; AGH's `search` matches the client column as well as the
+  // domain.
+  const { search: initialSearch } = useLocalSearchParams<{ search?: string }>();
   const [verdict, setVerdict] = useState<Verdict>("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(typeof initialSearch === "string" ? initialSearch : "");
   const [atTop, setAtTop] = useState(true);
 
   // Sheet → confirm is a modal chain, so it goes through useModalFlow (the

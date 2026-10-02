@@ -9,6 +9,8 @@ import {
 import {
   addRewrite,
   deleteRewrite,
+  getClients,
+  getDhcpStatus,
   getFilterStatus,
   getQueryLog,
   getRewrites,
@@ -60,6 +62,8 @@ export const adguardKeys = {
   filterStatus: (id: string | null | undefined) =>
     ["adguard", id, "filterStatus"] as const,
   rewrites: (id: string | null | undefined) => ["adguard", id, "rewrites"] as const,
+  clients: (id: string | null | undefined) => ["adguard", id, "clients"] as const,
+  dhcp: (id: string | null | undefined) => ["adguard", id, "dhcp"] as const,
   liveQueryLog: (id: string | null | undefined, filterKey: string) =>
     ["adguard", id, "querylog", "live", filterKey] as const,
   queryLogPage: (id: string | null | undefined, filterKey: string) =>
@@ -341,6 +345,42 @@ export function useRemoveAdguardRule(instanceId?: string) {
     mutationFn: (line: string) =>
       writeRules(id ?? undefined, (current) => removeRuleLine(current, line)),
     onSuccess: (rules) => seedUserRules(queryClient, id, rules),
+  });
+}
+
+// --- Clients & DHCP ------------------------------------------------------
+
+const CLIENTS_POLL_MS = 30_000;
+
+export function useAdguardClients(instanceId?: string) {
+  const { instanceId: id, enabled } = useInstanceTarget("adguard", instanceId);
+  return useQuery({
+    queryKey: adguardKeys.clients(id),
+    queryFn: () => getClients(id ?? undefined),
+    enabled: enabled && !!id,
+    staleTime: CLIENTS_POLL_MS,
+    refetchInterval: CLIENTS_POLL_MS,
+  });
+}
+
+/**
+ * Gated on `/status`.dhcp_available: an instance that cannot do DHCP (the
+ * usual Docker bridge setup) answers /dhcp/status with an error, and a
+ * failed query would otherwise sit in the cache looking like an outage. On
+ * such an instance this hook simply never runs and `data` stays undefined,
+ * which the Clients screen reads as "no DHCP here".
+ */
+export function useAdguardDhcpStatus(instanceId?: string) {
+  const { instanceId: id, enabled } = useInstanceTarget("adguard", instanceId);
+  const { data: status } = useAdguardStatus(instanceId);
+  const available = status?.dhcp_available === true;
+  return useQuery({
+    queryKey: adguardKeys.dhcp(id),
+    queryFn: () => getDhcpStatus(id ?? undefined),
+    enabled: enabled && !!id && available,
+    staleTime: CLIENTS_POLL_MS,
+    refetchInterval: CLIENTS_POLL_MS,
+    retry: false,
   });
 }
 
